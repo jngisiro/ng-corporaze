@@ -1,13 +1,200 @@
-# Use the latest 2.1 version of CircleCI pipeline process engine. See: https://circleci.com/docs/2.0/configuration-reference
 version: 2.1
-# Use a package of configuration called an orb.
+
 orbs:
-  # Declare a dependency on the welcome-orb
-  welcome: circleci/welcome-orb@0.4.1
-# Orchestrate or schedule a set of jobs
+  slack: circleci/slack@3.4.2
+
+executors:
+  app-executor:
+    docker:
+      - image: circleci/node:12.18.0
+    working_directory: ~/build
+
+  slack-executor:
+    docker:
+      - image: cibuilds/base:latest
+    resource_class: small
+
+aliases:
+  - &show-current-branch-name
+    run:
+      name: Show current branch
+      command: echo ${CIRCLE_BRANCH}
+
+  - &restore-cache
+    restore_cache:
+      keys:
+        - app-{{ checksum "package.json" }}
+        - app-
+
+  - &install-dependencies
+    run:
+      name: Install dependencies
+      command: npm install
+
+  - &save-cache
+    save_cache:
+      paths:
+        - node_modules
+      key: app-{{ checksum "package.json" }}
+
+  - &build-angular-project
+    run:
+      name: Build Angular project
+      command: |
+        npm install
+        npm run build
+        cd dist/netflix
+        zip ../dist.zip -r * .[^.]*
+        echo "Build Successful"
+
+  - &install-aws-cli
+    run:
+      name: Install AWS CLI
+      working_directory: /
+      command: |
+        sudo apt-get -y -qq update
+        sudo apt-get install -y awscli
+        sudo apt-get install -y python-pip python-dev build-essential
+
+jobs:
+  build:
+    executor: app-executor
+    steps:
+      - checkout
+      - *show-current-branch-name
+      - *restore-cache
+      - *install-dependencies
+      - *save-cache
+
+  lint-typescript:
+    executor: app-executor
+    steps:
+      - checkout
+      - *show-current-branch-name
+      - *restore-cache
+      - run:
+          name: "Lint Typescripe Code"
+          command: npm run lint
+
+  prettier:
+    executor: app-executor
+    steps:
+      - checkout
+      - *show-current-branch-name
+      - *restore-cache
+      - run:
+          name: Run Prettier Check
+          command: |
+            npm run prettier:check
+
+  deploy-to-aws-s3:
+    executor: app-executor
+    steps:
+      - checkout
+      - *show-current-branch-name
+      - *install-aws-cli
+      - *build-angular-project
+
+      - run:
+          name: "Deploy to AWS S3"
+          command: |
+            if [ "${CIRCLE_BRANCH}" == "master" ]
+            then
+              aws --region ${AWS_REGION} s3 sync ~/build/dist/netflix s3://${AWS_BUCKET_PROD} --delete
+
+            elif [ "${CIRCLE_BRANCH}" == "staging" ]
+            then
+              aws --region ${AWS_REGION} s3 sync ~/build/dist/netflix s3://${AWS_BUCKET_STAGING} --delete
+
+            else
+              aws --region ${AWS_REGION} s3 sync ~/build/dist/netflix s3://${AWS_BUCKET_DEV} --delete
+            fi
+
+  deploy-to-cloudfront:
+    executor: app-executor
+    steps:
+      - checkout
+      - *show-current-branch-name
+      - *install-aws-cli
+      - *build-angular-project
+
+      - run:
+          name: "Deploy to AWS CloudFront"
+          command: |
+            aws configure set preview.cloudfront true
+            if [ "${CIRCLE_BRANCH}" == "master" ]
+            then
+              aws cloudfront create-invalidation --distribution-id ${DISTRIBUTION_ID_PROD}  --path /\*
+
+            elif [ "${CIRCLE_BRANCH}" == "staging" ]
+            then
+              aws cloudfront create-invalidation --distribution-id ${DISTRIBUTION_ID_STAGING}  --path /\*
+
+            else
+              aws cloudfront create-invalidation --distribution-id ${DISTRIBUTION_ID_DEV}  --path /\*
+            fi
+
+  slack-notification:
+    executor: slack-executor
+    steps:
+      - slack/notify:
+          message: "${CIRCLE_BRANCH} branch deployment to AWS S3 and Cloudfront is complete."
+          webhook: ${SLACK_WEBHOOK}
+      - slack/status:
+          webhook: ${SLACK_WEBHOOK}
+
 workflows:
-  # Name the workflow "welcome"
-  welcome:
-    # Run the welcome/run job in its own container
+  build_and_deploy:
     jobs:
-      - welcome/run
+      - build
+
+      - prettier:
+          requires:
+            - build
+          filters:
+            branches:
+              only:
+                - develop
+                - staging
+                - master
+
+      - lint-typescript:
+          requires:
+            - build
+          filters:
+            branches:
+              only:
+                - develop
+                - staging
+                - master
+
+      - deploy-to-aws-s3:
+          requires:
+            - lint-typescript
+            - prettier
+          filters:
+            branches:
+              only:
+                - develop
+                - staging
+                - master
+
+      - deploy-to-cloudfront:
+          requires:
+            - deploy-to-aws-s3
+          filters:
+            branches:
+              only:
+                - develop
+                - staging
+                - master
+
+      - slack-notification:
+          requires:
+            - deploy-to-cloudfront
+          filters:
+            branches:
+              only:
+                - develop
+                - staging
+                - master
