@@ -43,7 +43,7 @@ aliases:
       command: |
         npm install
         npm run build
-        cd dist/netflix
+        cd dist/corporaze
         zip ../dist.zip -r * .[^.]*
         echo "Build Successful"
 
