@@ -1,0 +1,18 @@
+:host {
+  margin: 20px;
+}
+
+.ui.header {
+  text-align: center;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: 1fr 5fr;
+}
+
+#intro {
+  margin: 20px;
+  padding: 20px 150px;
+  text-align: center;
+}
