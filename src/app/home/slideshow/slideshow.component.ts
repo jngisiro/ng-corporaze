@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { interval, Subscription } from 'rxjs';
 
 @Component({
@@ -6,7 +6,7 @@ import { interval, Subscription } from 'rxjs';
   templateUrl: './slideshow.component.html',
   styleUrls: ['./slideshow.component.scss'],
 })
-export class SlideshowComponent implements OnInit {
+export class SlideshowComponent implements OnInit, OnDestroy {
   banners: { image: string; title: string; subtitle: string }[] = [
     {
       title: 'Company Registration',
