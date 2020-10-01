@@ -1,0 +1,15 @@
+.footer {
+  display: grid;
+
+  justify-items: center;
+  grid-template-columns: repeat(4, 1fr);
+
+  background-color: black;
+  color: #aaaaaa;
+
+  padding: 50px 50px;
+
+  .ui.header {
+    color: #cf7500;
+  }
+}
